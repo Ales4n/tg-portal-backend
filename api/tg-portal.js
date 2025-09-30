@@ -4,11 +4,12 @@ import crypto from "node:crypto";
 /** Verifica firma del App Proxy (param "signature").
  *  Algoritmo oficial: ordenar los pares k=v (arrays unidos con ","),
  *  concatenar sin separadores y firmar HMAC-SHA256 con el shared secret. */
-function verifyProxySignature(queryString, sharedSecret) {
-  const qs = queryString.replace(/^\?/, "");
+function verifyProxySignature(fullQueryString, sharedSecret) {
+  const qs = (fullQueryString || "").replace(/^\?/, "");
   const params = new URLSearchParams(qs);
 
-  const signature = params.get("signature") || "";
+  const signature = params.get("signature");
+  if (!signature || !sharedSecret) return false; // ← clave: sin firma => false, no crash
   params.delete("signature");
 
   // Agrupar claves repetidas (a=1&a=2 -> a=1,2)
@@ -27,7 +28,9 @@ function verifyProxySignature(queryString, sharedSecret) {
     .createHmac("sha256", sharedSecret)
     .update(message)
     .digest("hex");
-
+  // timingSafeEqual requiere misma longitud; si no, devuelve false
+  if (digest.length !== signature.length) return false;
+  
   return crypto.timingSafeEqual(
     Buffer.from(digest, "utf8"),
     Buffer.from(signature, "utf8")
