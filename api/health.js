@@ -1,3 +1,7 @@
 export default function handler(req, res) {
-  res.status(200).json({ ok: true, route: "/api/health" });
+  res.status(200).json({ 
+    ok: true, 
+    timestamp: new Date().toISOString(),
+    service: 'tg-portal'
+  });
 }
