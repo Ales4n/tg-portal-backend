@@ -1,0 +1,23 @@
+# Aprende más: https://shopify.dev/docs/apps/tools/cli/configuration
+
+name = "TG Portal Backend"
+client_id = "a467fd3bca2b2a6186eaf0f69cb7a219"
+application_url = "tg-portal-backend-stgn.vercel.app"
+embedded = true
+
+[access_scopes]
+# Define los scopes que necesites
+scopes = "read_customers,write_customers,read_orders"
+
+[auth]
+redirect_urls = [
+  "https://<PROJECT>.vercel.app/api/auth/callback"
+]
+
+[webhooks]
+api_version = "2024-10"
+
+[app_proxy]
+url = "https://tg-portal-backend-stgn.vercel.app/api/tg-portal"
+subpath = "tg-portal"
+prefix = "apps"
