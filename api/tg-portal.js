@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 
 export default function handler(req, res) {
-  // CORS para peticiones desde storefront
+  // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -10,65 +10,94 @@ export default function handler(req, res) {
     return res.status(200).end();
   }
 
+  // Log completo para debugging
+  console.log('=== APP PROXY REQUEST ===');
+  console.log('URL:', req.url);
+  console.log('Query params:', req.query);
+  console.log('========================');
+
   const { shop, timestamp, signature, path_prefix, ...restParams } = req.query;
 
-  // Log para debugging
-  console.log('App Proxy Request:', {
-    shop,
-    timestamp,
-    signature: signature ? 'present' : 'missing',
-    path_prefix,
-    allParams: Object.keys(req.query),
-    url: req.url
-  });
-
-  // Verificar firma HMAC
+  // Validar parámetros requeridos
   if (!shop || !timestamp || !signature) {
+    console.error('Missing required params:', { shop: !!shop, timestamp: !!timestamp, signature: !!signature });
     return res.status(401).json({ 
       error: 'Missing required proxy parameters',
-      received: { shop: !!shop, timestamp: !!timestamp, signature: !!signature }
-    });
-  }
-
-  const secret = process.env.SHOPIFY_APP_SHARED_SECRET;
-  if (!secret) {
-    return res.status(500).json({ error: 'Server misconfigured' });
-  }
-
-  // Construir query string canónico (sin 'signature')
-  const params = { ...restParams, shop, timestamp, path_prefix };
-  const sortedParams = Object.keys(params)
-    .sort()
-    .map(key => `${key}=${params[key]}`)
-    .join('&');
-
-  const hash = crypto
-    .createHmac('sha256', secret)
-    .update(sortedParams)
-    .digest('hex');
-
-  if (hash !== signature) {
-    return res.status(401).json({ 
-      error: 'Bad proxy signature',
-      debug: {
-        computed: hash,
-        received: signature,
-        canonical: sortedParams
+      received: { 
+        shop: !!shop, 
+        timestamp: !!timestamp, 
+        signature: !!signature 
       }
     });
   }
 
-  // Rutas
-  const path = req.url.split('?')[0].replace('/api/tg-portal', '');
+  // Verificar secret
+  const secret = process.env.SHOPIFY_APP_SHARED_SECRET;
+  if (!secret) {
+    console.error('SHOPIFY_APP_SHARED_SECRET not configured');
+    return res.status(500).json({ error: 'Server misconfigured: missing secret' });
+  }
 
-  if (path === '/ping') {
-    return res.status(200).json({ 
-      ok: true, 
-      message: 'Proxy working!',
-      shop,
-      timestamp 
+  // Construir query string canónico (alfabético, sin signature)
+  const params = { ...restParams, path_prefix, shop, timestamp };
+  const sortedKeys = Object.keys(params).sort();
+  const queryString = sortedKeys
+    .map(key => `${key}=${params[key]}`)
+    .join('&');
+
+  console.log('Canonical query string:', queryString);
+
+  // Calcular HMAC
+  const computedHash = crypto
+    .createHmac('sha256', secret)
+    .update(queryString)
+    .digest('hex');
+
+  console.log('Computed signature:', computedHash);
+  console.log('Received signature:', signature);
+
+  // Validar firma
+  if (computedHash !== signature) {
+    console.error('Signature mismatch!');
+    return res.status(401).json({ 
+      error: 'Invalid proxy signature',
+      debug: process.env.NODE_ENV === 'development' ? {
+        computed: computedHash,
+        received: signature,
+        canonical: queryString
+      } : undefined
     });
   }
 
-  return res.status(404).json({ error: 'Route not found' });
+  console.log('✓ Signature valid');
+
+  // Extraer el path (después de /api/tg-portal)
+  const fullPath = req.url.split('?')[0];
+  const path = fullPath.replace('/api/tg-portal', '') || '/';
+
+  console.log('Route path:', path);
+
+  // Rutas
+  if (path === '/ping' || path === '/ping/') {
+    return res.status(200).json({ 
+      success: true,
+      message: 'App Proxy funcionando correctamente',
+      shop,
+      timestamp,
+      customer_id: restParams.logged_in_customer_id || null
+    });
+  }
+
+  if (path === '/') {
+    return res.status(200).json({
+      success: true,
+      message: 'App Proxy root',
+      availableRoutes: ['/ping']
+    });
+  }
+
+  return res.status(404).json({ 
+    error: 'Route not found',
+    path 
+  });
 }
