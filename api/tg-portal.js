@@ -33,19 +33,19 @@ export default function handler(req, res) {
     return res.status(500).json({ error: 'Server misconfigured: missing secret' });
   }
 
-  console.log('Secret prefix:', secret.substring(0, 10));
+  console.log('Secret (first 10 chars):', secret.substring(0, 10));
+  console.log('Secret length:', secret.length);
 
-  // IMPORTANTE: Construir params en el orden correcto
-  // Shopify puede enviar path_prefix con o sin barra final
+  // CRÍTICO: Construir params exactamente como Shopify lo hace
   const params = {};
   
-  // Añadir todos los params extra primero (logged_in_customer_id, etc.)
+  // Añadir TODOS los params en el orden que vienen (incluyendo vacíos)
   Object.keys(restParams).forEach(key => {
-    params[key] = restParams[key];
+    params[key] = restParams[key]; // NO filtrar strings vacíos
   });
   
   // Añadir path_prefix si existe
-  if (path_prefix) {
+  if (path_prefix !== undefined) {
     params.path_prefix = path_prefix;
   }
   
@@ -69,6 +69,7 @@ export default function handler(req, res) {
 
   console.log('Computed signature:', computedHash);
   console.log('Received signature:', signature);
+  console.log('Match:', computedHash === signature);
 
   if (computedHash !== signature) {
     console.error('Signature mismatch!');
@@ -78,7 +79,8 @@ export default function handler(req, res) {
         canonical: queryString,
         computed: computedHash,
         received: signature,
-        params: params
+        secretLength: secret.length,
+        secretPrefix: secret.substring(0, 10)
       }
     });
   }
