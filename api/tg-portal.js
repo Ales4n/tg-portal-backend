@@ -12,7 +12,7 @@ export default function handler(req, res) {
   console.log('=== APP PROXY REQUEST ===');
   console.log('Full URL:', req.url);
 
-  // Extraer la query string RAW (sin parsear)
+  // Extraer la query string RAW
   const urlParts = req.url.split('?');
   if (urlParts.length < 2) {
     return res.status(400).json({ error: 'No query string' });
@@ -21,22 +21,32 @@ export default function handler(req, res) {
   const rawQueryString = urlParts[1];
   console.log('Raw query string:', rawQueryString);
 
-  // Parsear manualmente para obtener signature
-  const params = new URLSearchParams(rawQueryString);
-  const signature = params.get('signature');
-  const shop = params.get('shop');
-  const timestamp = params.get('timestamp');
+  // Parsear manualmente SIN decodificar
+  const rawParams = rawQueryString.split('&');
+  const paramsMap = {};
+  let signature = null;
 
-  console.log('Parsed params:', {
-    shop,
-    timestamp,
-    signature: signature ? 'present' : 'missing'
+  rawParams.forEach(param => {
+    const [key, value] = param.split('=');
+    if (key === 'signature') {
+      signature = value;
+    } else {
+      paramsMap[key] = value || ''; // Mantener strings vacíos
+    }
   });
 
-  if (!shop || !timestamp || !signature) {
+  console.log('Params map (without signature):', paramsMap);
+  console.log('Signature:', signature ? 'present' : 'missing');
+
+  // Validar parámetros requeridos
+  if (!paramsMap.shop || !paramsMap.timestamp || !signature) {
     return res.status(401).json({ 
       error: 'Missing required proxy parameters',
-      received: { shop: !!shop, timestamp: !!timestamp, signature: !!signature }
+      received: { 
+        shop: !!paramsMap.shop, 
+        timestamp: !!paramsMap.timestamp, 
+        signature: !!signature 
+      }
     });
   }
 
@@ -48,21 +58,12 @@ export default function handler(req, res) {
   console.log('Secret (first 10 chars):', secret.substring(0, 10));
   console.log('Secret length:', secret.length);
 
-  // Construir query string canónico SIN signature y manteniendo URL encoding
-  const paramsArray = [];
-  for (const [key, value] of params.entries()) {
-    if (key !== 'signature') {
-      // CRÍTICO: Mantener el formato key=value tal como viene en la URL
-      paramsArray.push({ key, value });
-    }
-  }
-
-  // Ordenar alfabéticamente por key
-  paramsArray.sort((a, b) => a.key.localeCompare(b.key));
-
-  // Construir el query string canónico
-  const canonicalQueryString = paramsArray
-    .map(({ key, value }) => `${key}=${value}`)
+  // Ordenar alfabéticamente las keys
+  const sortedKeys = Object.keys(paramsMap).sort();
+  
+  // Construir canonical query string (sin decodificar los valores)
+  const canonicalQueryString = sortedKeys
+    .map(key => `${key}=${paramsMap[key]}`)
     .join('&');
 
   console.log('Canonical query string:', canonicalQueryString);
@@ -91,8 +92,11 @@ export default function handler(req, res) {
 
   console.log('✓ Signature valid');
 
-  // Ahora sí, usar req.query para la lógica de negocio (valores decoded)
-  const { logged_in_customer_id, path_prefix } = req.query;
+  // Ahora decodificar valores para uso en la lógica
+  const shop = decodeURIComponent(paramsMap.shop);
+  const timestamp = paramsMap.timestamp;
+  const logged_in_customer_id = paramsMap.logged_in_customer_id ? 
+    decodeURIComponent(paramsMap.logged_in_customer_id) : null;
 
   // Extraer el path
   const fullPath = req.url.split('?')[0];
@@ -107,8 +111,8 @@ export default function handler(req, res) {
       message: 'App Proxy funcionando correctamente',
       shop,
       timestamp,
-      customer_id: logged_in_customer_id || null,
-      path_prefix
+      customer_id: logged_in_customer_id,
+      proxy_working: true
     });
   }
 
