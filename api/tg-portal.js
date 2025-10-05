@@ -9,18 +9,14 @@ export default function handler(req, res) {
     return res.status(200).end();
   }
 
-  // LOG 1: Ver todos los query params
-  console.log('=== FULL QUERY PARAMS ===');
-  console.log(JSON.stringify(req.query, null, 2));
-  console.log('========================');
+  console.log('=== APP PROXY REQUEST ===');
+  console.log('URL:', req.url);
+  console.log('Full query params:', JSON.stringify(req.query, null, 2));
 
   const { shop, timestamp, signature, path_prefix, ...restParams } = req.query;
 
-  // LOG 2: Ver secret (primeros 10 caracteres)
-  const secret = process.env.SHOPIFY_APP_SHARED_SECRET;
-  console.log('Secret (first 10 chars):', secret ? secret.substring(0, 10) : 'MISSING');
-
   if (!shop || !timestamp || !signature) {
+    console.error('Missing required params');
     return res.status(401).json({ 
       error: 'Missing required proxy parameters',
       received: { 
@@ -31,22 +27,38 @@ export default function handler(req, res) {
     });
   }
 
+  const secret = process.env.SHOPIFY_APP_SHARED_SECRET;
   if (!secret) {
+    console.error('SHOPIFY_APP_SHARED_SECRET not configured');
     return res.status(500).json({ error: 'Server misconfigured: missing secret' });
   }
 
-  // Construir query string canónico
-  const params = { ...restParams };
-  if (path_prefix) params.path_prefix = path_prefix;
+  console.log('Secret prefix:', secret.substring(0, 10));
+
+  // IMPORTANTE: Construir params en el orden correcto
+  // Shopify puede enviar path_prefix con o sin barra final
+  const params = {};
+  
+  // Añadir todos los params extra primero (logged_in_customer_id, etc.)
+  Object.keys(restParams).forEach(key => {
+    params[key] = restParams[key];
+  });
+  
+  // Añadir path_prefix si existe
+  if (path_prefix) {
+    params.path_prefix = path_prefix;
+  }
+  
+  // Añadir shop y timestamp
   params.shop = shop;
   params.timestamp = timestamp;
 
+  // Ordenar alfabéticamente
   const sortedKeys = Object.keys(params).sort();
   const queryString = sortedKeys
     .map(key => `${key}=${params[key]}`)
     .join('&');
 
-  // LOG 3: Ver query string canónico
   console.log('Canonical query string:', queryString);
 
   // Calcular HMAC
@@ -55,27 +67,31 @@ export default function handler(req, res) {
     .update(queryString)
     .digest('hex');
 
-  // LOG 4: Comparar firmas
   console.log('Computed signature:', computedHash);
   console.log('Received signature:', signature);
-  console.log('Match:', computedHash === signature);
 
   if (computedHash !== signature) {
+    console.error('Signature mismatch!');
     return res.status(401).json({ 
       error: 'Invalid proxy signature',
       debug: {
+        canonical: queryString,
         computed: computedHash,
         received: signature,
-        canonical: queryString,
-        secretPrefix: secret.substring(0, 10)
+        params: params
       }
     });
   }
 
-  // Extraer path
+  console.log('✓ Signature valid');
+
+  // Extraer el path de la petición
   const fullPath = req.url.split('?')[0];
   const path = fullPath.replace('/api/tg-portal', '') || '/';
 
+  console.log('Route path:', path);
+
+  // Rutas
   if (path === '/ping' || path === '/ping/') {
     return res.status(200).json({ 
       success: true,
@@ -86,5 +102,18 @@ export default function handler(req, res) {
     });
   }
 
-  return res.status(404).json({ error: 'Route not found', path });
+  if (path === '/' || path === '') {
+    return res.status(200).json({
+      success: true,
+      message: 'TG Portal API - App Proxy root',
+      availableRoutes: ['/ping'],
+      shop
+    });
+  }
+
+  return res.status(404).json({ 
+    error: 'Route not found',
+    path,
+    availableRoutes: ['/ping']
+  });
 }
