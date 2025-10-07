@@ -31,7 +31,7 @@ export default function handler(req, res) {
     if (key === 'signature') {
       signature = value;
     } else {
-      paramsMap[key] = value || ''; // Mantener strings vacíos
+      paramsMap[key] = value || '';
     }
   });
 
@@ -92,7 +92,7 @@ export default function handler(req, res) {
 
   console.log('✓ Signature valid');
 
-  // Ahora decodificar valores para uso en la lógica
+  // Decodificar valores para uso en la lógica
   const shop = decodeURIComponent(paramsMap.shop);
   const timestamp = paramsMap.timestamp;
   const logged_in_customer_id = paramsMap.logged_in_customer_id ? 
